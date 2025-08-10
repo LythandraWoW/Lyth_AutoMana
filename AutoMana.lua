@@ -50,6 +50,7 @@ local defaults =
   use_rejuv = false,
   use_flask = false,
   use_healthstone = true,
+  use_hourglass = true,         -- Auto-use Hourglass Sand for Bronze affliction
   -- New thresholds for improved logic
   rejuv_health_threshold = 25,  -- Use rejuv when health below this %
   rejuv_mana_threshold = 20,    -- AND mana below this %
@@ -219,6 +220,16 @@ function AutoMana(macro_body,fn)
     local mana_perc = mana / mana_max * 100
     local healthstone_threshold = (hp_max <= 5000 and health_perc < 50) or health_perc < 30
 
+    -- Check for Brood Affliction: Bronze debuff
+    local has_bronze_affliction = false
+    for i = 1, 16 do
+      local debuff = UnitDebuff("player", i)
+      if debuff and string.find(debuff, "Brood Affliction: Bronze") then
+        has_bronze_affliction = true
+        break
+      end
+    end
+
     -- NEW LOGIC: Check rejuv vs mana potion based on health/mana percentages
     local should_use_rejuv = AutoManaSettings.use_rejuv and 
                            health_perc < AutoManaSettings.rejuv_health_threshold and 
@@ -230,7 +241,11 @@ function AutoMana(macro_body,fn)
                               mana_perc < AutoManaSettings.potion_mana_threshold and 
                               consumeReady(consumables.potion)
 
-    if AutoManaSettings.use_tea and (missing_mana > 1350) and consumeReady(consumables.tea) then
+    if AutoManaSettings.use_hourglass and has_bronze_affliction and consumeReady(consumables.hourglass) then
+      debug_print("Trying Hourglass Sand (Bronze Affliction)")
+      UseContainerItem(consumables.hourglass.bag, consumables.hourglass.slot)
+      last_fired = now
+    elseif AutoManaSettings.use_tea and (missing_mana > 1350) and consumeReady(consumables.tea) then
       debug_print("Trying Tea")
       UseContainerItem(consumables.tea.bag,consumables.tea.slot)
       oom = false
@@ -329,6 +344,7 @@ local function OnEvent()
     consumables.rejuv = AMFindItem(consumables.rejuv, "18253", arg1)
     consumables.healthstone = AMFindItem(consumables.healthstone, "Healthstone", arg1)
     consumables.flask = AMFindItem(consumables.flask, "13511", arg1)
+    consumables.hourglass = AMFindItem(consumables.hourglass, "8529", arg1)
   elseif event == "PLAYER_ENTERING_WORLD" then -- spell cache
     AutoManaFrame.cachedSpells = {}
     -- Loop through the spellbook and cache player spells
@@ -365,6 +381,9 @@ local function handleCommands(msg,editbox)
   elseif args[1] == "flask" then
     AutoManaSettings.use_flask = not AutoManaSettings.use_flask
     amprint("Use Flask of Distilled Wisdom: "..showOnOff(AutoManaSettings.use_flask))
+  elseif args[1] == "hourglass" or args[1] == "sand" then
+    AutoManaSettings.use_hourglass = not AutoManaSettings.use_hourglass
+    amprint("Use Hourglass Sand (Bronze Affliction): "..showOnOff(AutoManaSettings.use_hourglass))
   elseif args[1] == "size" or args[1] == "group" then
     local n = tonumber(args[2])
     if n and n >= 0 then
@@ -421,6 +440,7 @@ local function handleCommands(msg,editbox)
     amprint('- Use Major Mana '.. colorize("pot",amcolor.green) .. 'ion [' .. showOnOff(AutoManaSettings.use_potion) .. '] (HP > ' .. AutoManaSettings.potion_health_threshold .. '%, MP < ' .. AutoManaSettings.potion_mana_threshold .. '%)')
     amprint('- Use Major ' .. colorize("rejuv",amcolor.green) .. 'enation Potion [' .. showOnOff(AutoManaSettings.use_rejuv) .. '] (HP < ' .. AutoManaSettings.rejuv_health_threshold .. '%, MP < ' .. AutoManaSettings.rejuv_mana_threshold .. '%)')
     amprint('- Use Health' .. colorize("stone",amcolor.green) .. ' [' .. showOnOff(AutoManaSettings.use_healthstone) .. ']')
+    amprint('- Use Hour' .. colorize("glass",amcolor.green) .. ' Sand [' .. showOnOff(AutoManaSettings.use_hourglass) .. '] (Bronze Affliction)')
     amprint('- Use ' ..colorize("flask",amcolor.green) ..' of Distilled Wisdom [' .. showOnOff(AutoManaSettings.use_flask) .. ']')
     amprint('Thresholds: ' .. colorize("rejuvhp", amcolor.yellow) .. ', ' .. colorize("rejuvmp", amcolor.yellow) .. ', ' .. colorize("pothp", amcolor.yellow) .. ', ' .. colorize("potmp", amcolor.yellow))
   end
