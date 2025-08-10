@@ -1,5 +1,6 @@
 ## Interface: 11200
-## Title: AutoMana
+## Author: MarcelineVQ, Lythandra
+## Title: |cff9400D3Lyth |cffffffffAutoMana
 ## Notes: Automatic Mana Consume Usage
 ## X-Category: Interface Enhancements
 ## Version: 2.1.1
