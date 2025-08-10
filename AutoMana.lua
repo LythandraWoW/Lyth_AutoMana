@@ -50,6 +50,11 @@ local defaults =
   use_rejuv = false,
   use_flask = false,
   use_healthstone = true,
+  -- New thresholds for improved logic
+  rejuv_health_threshold = 25,  -- Use rejuv when health below this %
+  rejuv_mana_threshold = 20,    -- AND mana below this %
+  potion_mana_threshold = 20,   -- Use mana potion when mana below this %
+  potion_health_threshold = 70, -- AND health above this %
 }
 
 local consumables = {}
@@ -206,18 +211,32 @@ function AutoMana(macro_body,fn)
 
     local hp = UnitHealth(p)
     local hp_max = UnitHealthMax(p)
-    local missing_mana = abs (UnitMana(p) - UnitManaMax(p))
-    local missing_health = abs (hp - hp_max)
-    local health_perc = hp / hp_max
-    local healthstone_threshold = (hp_max <= 5000 and health_perc < 0.5) or health_perc < 0.3
+    local mana = UnitMana(p)
+    local mana_max = UnitManaMax(p)
+    local missing_mana = abs(mana - mana_max)
+    local missing_health = abs(hp - hp_max)
+    local health_perc = hp / hp_max * 100
+    local mana_perc = mana / mana_max * 100
+    local healthstone_threshold = (hp_max <= 5000 and health_perc < 50) or health_perc < 30
+
+    -- NEW LOGIC: Check rejuv vs mana potion based on health/mana percentages
+    local should_use_rejuv = AutoManaSettings.use_rejuv and 
+                           health_perc < AutoManaSettings.rejuv_health_threshold and 
+                           mana_perc < AutoManaSettings.rejuv_mana_threshold and 
+                           consumeReady(consumables.rejuv)
+                           
+    local should_use_mana_pot = AutoManaSettings.use_potion and 
+                              health_perc > AutoManaSettings.potion_health_threshold and 
+                              mana_perc < AutoManaSettings.potion_mana_threshold and 
+                              consumeReady(consumables.potion)
 
     if AutoManaSettings.use_tea and (missing_mana > 1350) and consumeReady(consumables.tea) then
       debug_print("Trying Tea")
       UseContainerItem(consumables.tea.bag,consumables.tea.slot)
       oom = false
       last_fired = now
-    elseif AutoManaSettings.use_rejuv and (missing_health > (consumables.has_alchstone and 2340 or 1760)) and consumeReady(consumables.rejuv) then
-      debug_print("Trying Rejuv")
+    elseif should_use_rejuv then
+      debug_print(string.format("Trying Rejuv (Health: %.1f%%, Mana: %.1f%%)", health_perc, mana_perc))
       UseContainerItem(consumables.rejuv.bag,consumables.rejuv.slot)
       oom = false
       last_fired = now
@@ -225,8 +244,8 @@ function AutoMana(macro_body,fn)
       debug_print("Trying Healthstone")
       UseContainerItem(consumables.healthstone.bag,consumables.healthstone.slot)
       last_fired = now
-    elseif AutoManaSettings.use_potion and (missing_mana > (consumables.has_alchstone and 2992 or 2250)) and consumeReady(consumables.potion) then
-      debug_print("Trying Potion")
+    elseif should_use_mana_pot then
+      debug_print(string.format("Trying Mana Potion (Health: %.1f%%, Mana: %.1f%%)", health_perc, mana_perc))
       UseContainerItem(consumables.potion.bag,consumables.potion.slot)
       oom = false
       last_fired = now
@@ -360,16 +379,50 @@ local function handleCommands(msg,editbox)
   elseif args[1] == "enabled" or args[1] == "enable" or args[1] == "toggle" then
     AutoManaSettings.enabled = not AutoManaSettings.enabled
     amprint("Addon enabled: "..showOnOff(AutoManaSettings.enabled))
+  -- New threshold commands
+  elseif args[1] == "rejuvhp" then
+    local n = tonumber(args[2])
+    if n and n >= 0 and n <= 100 then
+      AutoManaSettings.rejuv_health_threshold = n
+      amprint("Rejuv health threshold: "..n.."%")
+    else
+      amprint("Usage: /automana rejuvhp <0-100>")
+    end
+  elseif args[1] == "rejuvmp" then
+    local n = tonumber(args[2])
+    if n and n >= 0 and n <= 100 then
+      AutoManaSettings.rejuv_mana_threshold = n
+      amprint("Rejuv mana threshold: "..n.."%")
+    else
+      amprint("Usage: /automana rejuvmp <0-100>")
+    end
+  elseif args[1] == "pothp" then
+    local n = tonumber(args[2])
+    if n and n >= 0 and n <= 100 then
+      AutoManaSettings.potion_health_threshold = n
+      amprint("Mana potion health threshold: "..n.."%")
+    else
+      amprint("Usage: /automana pothp <0-100>")
+    end
+  elseif args[1] == "potmp" then
+    local n = tonumber(args[2])
+    if n and n >= 0 and n <= 100 then
+      AutoManaSettings.potion_mana_threshold = n
+      amprint("Mana potion mana threshold: "..n.."%")
+    else
+      amprint("Usage: /automana potmp <0-100>")
+    end
   else -- make group size color by if you're in a big enough group currently
     amprint('AutoMana: Automatically use mana consumes.')
     amprint('- Addon '..colorize("enable",amcolor.green)..'d [' .. showOnOff(AutoManaSettings.enabled) .. ']')
     amprint('- Active in ' .. colorize("combat",amcolor.green)..' only [' .. showOnOff(AutoManaSettings.combat_only) .. ']')
     amprint('- Active at minimum group ' .. colorize("size",amcolor.green) .. ' [' .. AutoManaSettings.min_group_size .. ']')
     amprint('- Use ' .. colorize("tea",amcolor.green) .. ' [' .. showOnOff(AutoManaSettings.use_tea) .. ']')
-    amprint('- Use Major Mana '.. colorize("pot",amcolor.green) .. 'ion [' .. showOnOff(AutoManaSettings.use_potion) .. ']')
-    amprint('- Use Major ' .. colorize("rejuv",amcolor.green) .. 'enation Potion [' .. showOnOff(AutoManaSettings.use_rejuv) .. ']')
+    amprint('- Use Major Mana '.. colorize("pot",amcolor.green) .. 'ion [' .. showOnOff(AutoManaSettings.use_potion) .. '] (HP > ' .. AutoManaSettings.potion_health_threshold .. '%, MP < ' .. AutoManaSettings.potion_mana_threshold .. '%)')
+    amprint('- Use Major ' .. colorize("rejuv",amcolor.green) .. 'enation Potion [' .. showOnOff(AutoManaSettings.use_rejuv) .. '] (HP < ' .. AutoManaSettings.rejuv_health_threshold .. '%, MP < ' .. AutoManaSettings.rejuv_mana_threshold .. '%)')
     amprint('- Use Health' .. colorize("stone",amcolor.green) .. ' [' .. showOnOff(AutoManaSettings.use_healthstone) .. ']')
     amprint('- Use ' ..colorize("flask",amcolor.green) ..' of Distilled Wisdom [' .. showOnOff(AutoManaSettings.use_flask) .. ']')
+    amprint('Thresholds: ' .. colorize("rejuvhp", amcolor.yellow) .. ', ' .. colorize("rejuvmp", amcolor.yellow) .. ', ' .. colorize("pothp", amcolor.yellow) .. ', ' .. colorize("potmp", amcolor.yellow))
   end
 end
 
